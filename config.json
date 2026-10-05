@@ -12,12 +12,21 @@
     },
     {
       "id": "host-b",
-      "label": "MLX/Jaccl (MacStudio1 server)",
+      "label": "MLX/Jaccl (MacStudio1 server) - 4bit",
       "user": "alvise",
       "host": "192.168.1.101",
       "port": 22,
       "timeout": 10,
-      "command": ""
+      "command": "~/ai-scripts/mlx_jaccl-start.sh -max-tokens 262144 Qwen3.8-27B"
+    },
+    {
+      "id": "host-c",
+      "label": "MLX/Jaccl (MacStudio1 server) - 8bit",
+      "user": "alvise",
+      "host": "192.168.1.101",
+      "port": 22,
+      "timeout": 10,
+      "command": "~/ai-scripts/mlx_jaccl-start.sh -max-tokens 131072 Qwen3.8-27B -8bit"
     }
   ]
 }
