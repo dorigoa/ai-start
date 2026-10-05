@@ -2,22 +2,22 @@
   "hosts": [
     {
       "id": "host-a",
-      "label": "Host A (esempio: server web)",
-      "user": "admin",
-      "host": "192.168.1.10",
+      "label": "Strata AI Server (Ubuntu PC server)",
+      "user": "alvise",
+      "host": "192.168.1.200",
       "port": 22,
       "key_file": "~/.ssh/id_rsa",
       "timeout": 10,
-      "command": "uptime && df -h"
+      "command": "~/ai-scripts/strata-start.sh"
     },
     {
       "id": "host-b",
-      "label": "Host B (esempio: database)",
-      "user": "postgres",
-      "host": "10.0.0.20",
+      "label": "MLX/Jaccl (MacStudio1 server)",
+      "user": "alvise",
+      "host": "192.168.1.101",
       "port": 22,
       "timeout": 10,
-      "command": "uptime && free -m"
+      "command": ""
     }
   ]
 }
