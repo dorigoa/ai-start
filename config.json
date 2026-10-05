@@ -1,0 +1,23 @@
+{
+  "hosts": [
+    {
+      "id": "host-a",
+      "label": "Host A (esempio: server web)",
+      "user": "admin",
+      "host": "192.168.1.10",
+      "port": 22,
+      "key_file": "~/.ssh/id_rsa",
+      "timeout": 10,
+      "command": "uptime && df -h"
+    },
+    {
+      "id": "host-b",
+      "label": "Host B (esempio: database)",
+      "user": "postgres",
+      "host": "10.0.0.20",
+      "port": 22,
+      "timeout": 10,
+      "command": "uptime && free -m"
+    }
+  ]
+}
