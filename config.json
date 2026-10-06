@@ -8,6 +8,7 @@
       "port": 22,
       "key_file": "~/.ssh/id_ecdsa.pub",
       "timeout": 10,
+      "detach": true,
       "command": "~/ai-scripts/strata-start.sh"
     },
     {
@@ -18,6 +19,7 @@
       "port": 22,
       "key_file": "~/.ssh/id_ecdsa.pub",
       "timeout": 10,
+      "detach": true,
       "command": "~/ai-scripts/mlx_jaccl-start.sh -max-tokens 262144 Qwen3.8-27B"
     },
     {
@@ -28,6 +30,7 @@
       "port": 22,
       "key_file": "~/.ssh/id_ecdsa.pub",
       "timeout": 10,
+      "detach": true,
       "command": "~/ai-scripts/mlx_jaccl-start.sh -max-tokens 131072 Qwen3.8-27B -8bit"
     }
   ]
