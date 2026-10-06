@@ -9,7 +9,8 @@
       "key_file": "~/.ssh/id_ecdsa.pub",
       "timeout": 10,
       "detach": true,
-      "command": "~/ai-scripts/strata-start.sh"
+      "command": "~/ai-scripts/strata-start.sh",
+      "process_to_kill": "strata"
     },
     {
       "id": "host-b",
@@ -20,7 +21,8 @@
       "key_file": "~/.ssh/id_ecdsa.pub",
       "timeout": 10,
       "detach": true,
-      "command": "~/ai-scripts/mlx_jaccl-start.sh -max-tokens 262144 Qwen3.8-27B"
+      "command": "~/ai-scripts/mlx_jaccl-start.sh -max-tokens 262144 Qwen3.8-27B",
+      "process_to_kill": "mlx_leak_shim.py"
     },
     {
       "id": "host-c",
@@ -31,7 +33,8 @@
       "key_file": "~/.ssh/id_ecdsa.pub",
       "timeout": 10,
       "detach": true,
-      "command": "~/ai-scripts/mlx_jaccl-start.sh -max-tokens 131072 Qwen3.8-27B -8bit"
+      "command": "~/ai-scripts/mlx_jaccl-start.sh -max-tokens 131072 Qwen3.8-27B -8bit",
+      "process_to_kill": "mlx_leak_shim.py"
     }
   ]
 }

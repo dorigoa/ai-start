@@ -14,6 +14,7 @@ import streamlit as st
 st.set_page_config(page_title="SSH Remote Console", page_icon=":terminal:", layout="wide")
 
 CONFIG_PATH = Path(os.environ.get("SSH_GUI_CONFIG", Path(__file__).with_name("config.json")))
+PIDS_PATH = Path(os.environ.get("SSH_GUI_PIDS", Path(__file__).with_name("processes.json")))
 DEFAULT_PORT = 22
 DEFAULT_TIMEOUT = 10
 DETACH_LOG_DIR = "$HOME/.ai-start/logs"
@@ -170,6 +171,69 @@ def fetch_log(host_cfg: dict, password: str | None, log_path: str) -> dict:
     return run_ssh(host_cfg, f"tail -n {LOG_TAIL_LINES} {sh_quote(log_path)}", password)
 
 
+def load_process_records() -> dict:
+    try:
+        with open(PIDS_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+
+def save_process_records(records: dict) -> None:
+    with open(PIDS_PATH, "w", encoding="utf-8") as f:
+        json.dump(records, f, ensure_ascii=False, indent=2, sort_keys=True)
+
+
+def record_detached_start(host_id: str, host_cfg: dict, result: dict, command: str) -> None:
+    """Persiste il PID di un processo distaccato avviato con successo."""
+    if not (result.get("detached") and result.get("ok") and result.get("pid")):
+        return
+    records = load_process_records()
+    records[host_id] = {
+        "pid": result["pid"],
+        "host": host_cfg["host"],
+        "user": host_cfg.get("user"),
+        "command": command,
+        "log": result.get("log", ""),
+        "started": time.strftime("%Y-%m-%d %H:%M:%S"),
+    }
+    save_process_records(records)
+
+
+def forget_process(host_id: str) -> None:
+    records = load_process_records()
+    if records.pop(host_id, None) is not None:
+        save_process_records(records)
+
+
+def kill_remote(host_cfg: dict, password: str | None, pid: str) -> dict:
+    """Termina l'intero albero di processi remoto (PID radice e tutti i discendenti).
+
+    Il comando lanciato in background spesso è un wrapper che forka il processo
+    reale: si raccoglie quindi il ramo completo con `pgrep -P` ricorsivo, si invia
+    SIGTERM a tutti, poi SIGKILL a chi resiste. Nota: non copre i processi che si
+    sono daemonizzati (padre uscito, figli orfani riattaccati a init).
+    """
+    q = sh_quote(pid)
+    # al(ivo): `kill -0` risponde bene anche ai zombie, quindi si controlla lo
+    # stato reale con ps (Z = zombie, da considerare morto).
+    cmd = (
+        f"if ! kill -0 {q} 2>/dev/null; then echo 'NOPROCESS'; exit 0; fi; "
+        f"al(){{ s=$(ps -o state= -p \"$1\" 2>/dev/null | tr -d ' '); "
+        f"[ -n \"$s\" ] && [ \"$s\" != \"Z\" ]; }}; "
+        f"c(){{ echo \"$1\"; for x in $(pgrep -P \"$1\" 2>/dev/null); do c \"$x\"; done; }}; "
+        f"all=$(c {q}); "
+        f"for p in $all; do kill -TERM \"$p\" 2>/dev/null; done; "
+        f"sleep 0.5; "
+        f"for p in $all; do al \"$p\" && kill -KILL \"$p\" 2>/dev/null; done; "
+        f"sleep 0.3; "
+        f"left=0; for p in $all; do al \"$p\" && left=1; done; "
+        f"[ \"$left\" -eq 0 ] && {{ echo 'KILLED'; exit 0; }} || {{ echo 'STILL_ALIVE'; exit 1; }}"
+    )
+    return run_ssh(host_cfg, cmd, password)
+
+
 def render_result(result: dict) -> None:
     if result.get("code") is None:
         st.error(f"Errore di connessione/esecuzione: {result['err']}")
@@ -214,6 +278,46 @@ def render_detached_log(
                 st.code(log_result["out"] or "(log vuoto)", language="bash")
 
 
+def render_kill_section(
+    host_id: str, host_cfg: dict, password: str | None, uid: str
+) -> None:
+    record = load_process_records().get(host_id)
+    kill_res = st.session_state.get(f"killres_{uid}")
+
+    if not record and not kill_res:
+        return
+
+    if record and record.get("pid"):
+        pid = record["pid"]
+        st.markdown(
+            f"Processo remoto tracciato — PID `{pid}` — avviato {record.get('started', '?')}"
+        )
+        st.caption("Il kill termina anche tutti i processi figli/collegati (albero completo).")
+        if record.get("command"):
+            st.caption(f"Comando: `{record['command']}`")
+
+        if st.button("⛔ Kill processo remoto", key=f"kill_{uid}", use_container_width=True):
+            with st.spinner(f"Termino l'albero di processi (PID {pid}) su {host_cfg['host']}..."):
+                res = kill_remote(host_cfg, password, pid)
+            st.session_state[f"killres_{uid}"] = {"res": res, "pid": pid}
+            if res.get("code") == 0 and "STILL_ALIVE" not in res.get("out", ""):
+                forget_process(host_id)
+            st.rerun()
+
+    if kill_res:
+        pid = kill_res.get("pid", "?")
+        res = kill_res["res"]
+        if res.get("code") is None:
+            st.error(f"Errore kill: {res['err']}")
+        elif "STILL_ALIVE" in res.get("out", ""):
+            st.error(f"Impossibile terminare il PID {pid} anche con SIGKILL.")
+        elif "NOPROCESS" in res.get("out", ""):
+            st.warning(f"Il PID {pid} non è attivo sul nodo remoto.")
+            forget_process(host_id)
+        else:
+            st.success(f"Processo remoto terminato (PID {pid}).")
+
+
 def host_panel(index: int, host_cfg: dict) -> None:
     host_id = host_cfg.get("id") or f"host-{index + 1}"
     uid = f"{host_id}#{index}"
@@ -249,17 +353,22 @@ def host_panel(index: int, host_cfg: dict) -> None:
 
         if st.button("Esegui via SSH", type="primary", key=f"run_{uid}", use_container_width=True):
             with st.spinner(f"Connessione a {host_cfg['host']}..."):
-                st.session_state[res_key] = run_ssh(
+                result = run_ssh(
                     host_cfg,
                     st.session_state[cmd_key],
                     password,
                     detach=bool(st.session_state[detach_key]),
                 )
+            st.session_state[res_key] = result
+            record_detached_start(host_id, host_cfg, result, st.session_state[cmd_key])
+            if result.get("detached") and result.get("ok") and result.get("pid"):
+                st.session_state.pop(f"killres_{uid}", None)
 
         result = st.session_state.get(res_key)
         if result:
             render_result(result)
             render_detached_log(result, host_cfg, password, uid)
+        render_kill_section(host_id, host_cfg, password, uid)
 
 
 def main() -> None:
@@ -284,9 +393,11 @@ def main() -> None:
         with st.spinner("Esecuzione in parallelo..."):
             with ThreadPoolExecutor(max_workers=len(jobs)) as pool:
                 results = list(pool.map(lambda j: run_ssh(*j), jobs))
-        for i, (h, _cmd, _pwd, _detach) in enumerate(jobs):
-            uid = f"{h.get('id') or f'host-{i + 1}'}#{i}"
+        for i, (h, cmd, _pwd, _detach) in enumerate(jobs):
+            host_id = h.get("id") or f"host-{i + 1}"
+            uid = f"{host_id}#{i}"
             st.session_state[f"result_{uid}"] = results[i]
+            record_detached_start(host_id, h, results[i], cmd)
 
     if len(hosts) == 2:
         col1, col2 = st.columns(2)
@@ -299,7 +410,7 @@ def main() -> None:
             host_panel(i, h)
 
     res_keys = [
-        k for k in st.session_state if k.startswith(("result_", "logtext_"))
+        k for k in st.session_state if k.startswith(("result_", "logtext_", "killres_"))
     ]
     if res_keys and st.button("Pulisci risultati"):
         for k in res_keys:
